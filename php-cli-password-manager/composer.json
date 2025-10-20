@@ -1,0 +1,17 @@
+{
+    "name": "iznets/php-cli-password-manager",
+    "description": "PHP CLI Password Manager",
+    "type": "project",
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  },
+    "require": {
+        "symfony/console": "^7.1",
+        "symfony/filesystem": "^7.1",
+        "monolog/monolog": "^3",
+        "ramsey/uuid": "^4",
+        "respect/validation": "^2"
+    }
+}

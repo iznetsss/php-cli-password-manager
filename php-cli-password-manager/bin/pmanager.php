@@ -1,0 +1,27 @@
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Symfony\Component\Console\Helper\QuestionHelper;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Console\SingleCommandApplication;
+
+$application = new SingleCommandApplication();
+$application->setName('php-cli-password-manager');
+$application->setVersion('0.1.0');
+
+$application->setCode(function (InputInterface $input, OutputInterface $output): int {
+    $helper = new QuestionHelper();
+    $question = new Question('TELL ME WORD: ');
+    $word = (string) $helper->ask($input, $output, $question);
+
+    $output->writeln('YOUR WORD: ' . $word);
+
+    return 0;
+});
+
+$application->run();
