@@ -5,24 +5,26 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use Symfony\Component\Console\Helper\QuestionHelper;
-use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\SingleCommandApplication;
+use App\Command\AddCommand;
+use App\Command\DeleteCommand;
+use App\Command\GetCommand;
+use App\Command\InitCommand;
+use App\Command\LockCommand;
+use App\Command\MenuCommand;
+use App\Command\UnlockCommand;
+use App\Command\UpdateCommand;
+use Symfony\Component\Console\Application;
+use Symfony\Component\Console\Command\ListCommand;
 
-$application = new SingleCommandApplication();
-$application->setName('php-cli-password-manager');
-$application->setVersion('0.1.0');
-
-$application->setCode(function (InputInterface $input, OutputInterface $output): int {
-    $helper = new QuestionHelper();
-    $question = new Question('TELL ME WORD: ');
-    $word = (string) $helper->ask($input, $output, $question);
-
-    $output->writeln('YOUR WORD: ' . $word);
-
-    return 0;
-});
-
+$application = new Application('php-cli-password-manager', '0.1.0');
+$application->add(new MenuCommand());
+$application->add(new InitCommand());
+$application->add(new UnlockCommand());
+$application->add(new AddCommand());
+$application->add(new ListCommand());
+$application->add(new GetCommand());
+$application->add(new UpdateCommand());
+$application->add(new DeleteCommand());
+$application->add(new LockCommand());
+$application->setDefaultCommand('menu', true);
 $application->run();

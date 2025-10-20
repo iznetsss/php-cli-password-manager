@@ -12,6 +12,7 @@
         "symfony/filesystem": "^7.1",
         "monolog/monolog": "^3",
         "ramsey/uuid": "^4",
-        "respect/validation": "^2"
+        "respect/validation": "^2",
+      "ext-sodium": "*"
     }
 }
