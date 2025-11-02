@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Support\ConsolePick;
 use App\Support\ConsoleSanitizer;
 use App\Support\ConsoleUi;
 use App\Support\Secrets;
@@ -18,7 +19,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Helper\QuestionHelper;
-use Symfony\Component\Console\Question\Question;
 
 final class GetCommand extends Command
 {
@@ -43,57 +43,27 @@ final class GetCommand extends Command
         $interactive = ($idRaw === '' && $serviceRaw === '');
 
         if ($interactive) {
-            // New interactive list -> choose -> show -> clear output -> re-encrypt
             $ok = VaultAccess::withUnlocked($input, $output, function (array $data) use ($input, $output, $helper): ?array {
                 $state = VaultRepository::state($data);
                 $entries = $state['entries'] ?? [];
-
                 if ($entries === []) {
                     $output->writeln('<comment>No entries</comment>');
                     return null;
                 }
 
-                // Unique, sorted service names
-                $map = [];
-                foreach ($entries as $e) {
-                    $map[(string)$e['service']] = true;
-                }
-                $services = array_keys($map);
-                sort($services, SORT_NATURAL | SORT_FLAG_CASE);
-
-                $output->writeln('Services:');
-                foreach ($services as $i => $name) {
-                    $output->writeln(sprintf('%d. %s', $i + 1, \App\Support\ConsoleSanitizer::safe($name)));
-                }
-
-                $q = new Question('Please, choose service: ');
-                $ans = trim((string)$helper->ask($input, $output, $q));
-
-                $selected = $ans;
-                if (ctype_digit($ans) && $ans !== '0') {
-                    $idx = (int)$ans - 1;
-                    if (isset($services[$idx])) {
-                        $selected = $services[$idx];
-                    }
-                }
-
-                try {
-                    $selected = InputValidator::service($selected);
-                } catch (ValidationException) {
-                    $output->writeln('<error>Invalid service</error>');
-                    return null;
-                }
+                $services = ConsolePick::services($entries);
+                ConsolePick::printServices($output, $services);
+                $selected = ConsolePick::askService($input, $output, $helper, $services);
+                if ($selected === null) return null;
 
                 $candidates = VaultRepository::list($state, $selected);
                 $entry = $candidates[0] ?? null;
                 if ($entry === null) {
-                    Audit::log('entry.get.fail', 'fail', 404, ['reason' => 'not_found']);
                     $output->writeln('<error>Not found</error>');
                     return null;
                 }
 
                 ConsoleUi::clear($output);
-
                 $output->writeln('Service: ' . ConsoleSanitizer::safe($entry['service']));
                 $output->writeln('Username: ' . ConsoleSanitizer::safe($entry['username']));
                 $output->writeln('Created: ' . ConsoleSanitizer::safe($entry['createdAt']));
@@ -102,7 +72,6 @@ final class GetCommand extends Command
                 $output->writeln('Password: ' . ConsoleSanitizer::safe($entry['password']));
 
                 Audit::log('entry.get', 'success', 0, ['service' => $entry['service']]);
-
                 return null;
             }, reEncryptOnRead: true);
 

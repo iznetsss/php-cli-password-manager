@@ -10,13 +10,17 @@ use Symfony\Component\Console\Question\Question;
 
 final class ConsoleUi
 {
-    /** Clear screen + scrollback where supported */
+    /**
+     * Clear screen + scrollback where supported
+     */
     public static function clear(OutputInterface $output): void
     {
         $output->write("\033[2J\033[3J\033[H");
     }
 
-    /** Wait for any key (raw mode) with Enter fallback */
+    /**
+     * Wait for any key (raw mode) with Enter fallback
+     */
     public static function waitAnyKey(InputInterface $input, OutputInterface $output, string $prompt = '[press any key]'): void
     {
         $output->writeln('');
@@ -37,5 +41,17 @@ final class ConsoleUi
             }
         }
         new QuestionHelper()->ask($input, $output, new Question($prompt . ' (Enter) '));
+    }
+
+    /**
+     * Print standardized "deleted" block
+     */
+    public static function showDeleted(OutputInterface $output, string $id, string $service, string $username): void
+    {
+        self::clear($output);
+        $output->writeln('<info>Deleted</info>');
+        $output->writeln('ID: ' . ConsoleSanitizer::safe($id));
+        $output->writeln('Service: ' . ConsoleSanitizer::safe($service));
+        $output->writeln('Username: ' . ConsoleSanitizer::safe($username));
     }
 }
