@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Security;
 
+use RuntimeException;
 final class Crypto
 {
     private const AAD = 'php-cli-password-manager:v1';
@@ -18,8 +19,16 @@ final class Crypto
         return password_verify($master, $bcryptHash);
     }
 
-    public static function deriveVaultKey(string $master, string $salt, int $keyLen = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES): string
-    {
+
+    public static function deriveVaultKey(
+        string $master,
+        string $salt,
+        int $keyLen = SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES
+    ): string {
+        if (strlen($salt) !== SODIUM_CRYPTO_PWHASH_SALTBYTES) {
+            throw new RuntimeException('Invalid salt length');
+        }
+
         return sodium_crypto_pwhash(
             $keyLen,
             $master,
@@ -39,7 +48,7 @@ final class Crypto
     {
         $plain = sodium_crypto_aead_xchacha20poly1305_ietf_decrypt($ciphertext, self::AAD, $nonce, $key);
         if ($plain === false) {
-            throw new \RuntimeException('Decryption failed');
+            throw new RuntimeException('Decryption failed');
         }
         return $plain;
     }

@@ -9,22 +9,28 @@ use App\Command\AddCommand;
 use App\Command\DeleteCommand;
 use App\Command\GetCommand;
 use App\Command\InitCommand;
-use App\Command\LockCommand;
 use App\Command\MenuCommand;
-use App\Command\UnlockCommand;
 use App\Command\UpdateCommand;
+use App\Support\ErrorHandler;
+use App\Support\LoggerFactory;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Command\ListCommand;
+
+umask(0077);
+
+ErrorHandler::register();
 
 $application = new Application('php-cli-password-manager', '0.1.0');
 $application->add(new MenuCommand());
 $application->add(new InitCommand());
-$application->add(new UnlockCommand());
 $application->add(new AddCommand());
 $application->add(new ListCommand());
 $application->add(new GetCommand());
 $application->add(new UpdateCommand());
 $application->add(new DeleteCommand());
-$application->add(new LockCommand());
+
 $application->setDefaultCommand('menu', true);
+
+LoggerFactory::get();
+
 $application->run();

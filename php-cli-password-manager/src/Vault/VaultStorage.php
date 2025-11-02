@@ -5,47 +5,87 @@ declare(strict_types=1);
 namespace App\Vault;
 
 use App\Platform\Paths;
+use App\Platform\Permissions;
+use App\Support\Audit;
+use App\Vault\Model\VaultBlob;
+use RuntimeException;
+use Throwable;
 
 final class VaultStorage
 {
-    public static function save(string $headerJson, string $nonceB64, string $cipherB64): void
+    public static function save(VaultBlob $blob): void
     {
-        Paths::ensureDataDir();
-        $path = Paths::vaultPath();
-        $tmp = $path . '.tmp';
+        try {
+            Paths::ensureDataDir();
+            $dir = Paths::dataDir();
+            Permissions::assertDataDirSecure($dir);
 
-        $blob = json_encode([
-            'header' => json_decode($headerJson, true, 512, JSON_THROW_ON_ERROR),
-            'nonce'  => $nonceB64,
-            'cipher' => $cipherB64,
-        ], JSON_THROW_ON_ERROR);
+            $path = Paths::vaultPath();
+            $tmp = $path . '.tmp';
 
-        file_put_contents($tmp, $blob, LOCK_EX);
-        @chmod($tmp, 0600);
-        rename($tmp, $path);
-        Paths::ensureFilePerms($path);
+            $json = json_encode($blob->toArray(), JSON_THROW_ON_ERROR);
+
+            file_put_contents($tmp, $json, LOCK_EX);
+            @chmod($tmp, 0600);
+
+            rename($tmp, $path);
+            @chmod($path, 0600);
+
+            Permissions::assertFileSecure($path, 0o600);
+
+            Audit::log('vault.save', 'success', 0);
+        } catch (Throwable $e) {
+            @is_file($tmp ?? '') && @unlink($tmp);
+            Audit::log('vault.save.fail', 'fail', 301, ['reason' => 'exception']);
+            throw $e;
+        }
     }
 
-    /**
-     * @return array{header: array, nonce: string, cipher: string}
-     */
-    public static function load(): array
+    public static function load(): VaultBlob
     {
+        $dir = Paths::dataDir();
+        Permissions::assertDataDirSecure($dir);
+
         $path = Paths::vaultPath();
+        Permissions::assertFileSecure($path, 0o600);
+
         if (!file_exists($path)) {
-            throw new \RuntimeException('Vault not found');
+            throw new RuntimeException('Vault not found');
         }
+
         $raw = file_get_contents($path);
-        $data = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode((string)$raw, true, 512, JSON_THROW_ON_ERROR);
 
-        if (!isset($data['header'], $data['nonce'], $data['cipher'])) {
-            throw new \RuntimeException('Corrupt vault file');
+        return VaultBlob::fromArray((array)$data);
+    }
+
+    public static function exists(): bool
+    {
+        Paths::ensureDataDir();
+        return is_file(Paths::vaultPath());
+    }
+
+    public static function purge(bool $includeLogs = true): void
+    {
+        Paths::ensureDataDir();
+
+        $files = [
+            Paths::vaultPath(),
+            Paths::vaultPath() . '.tmp',
+        ];
+        if ($includeLogs) {
+            $files[] = Paths::logPath();
         }
 
-        return [
-            'header' => $data['header'],
-            'nonce'  => (string) $data['nonce'],
-            'cipher' => (string) $data['cipher'],
-        ];
+        $failed = [];
+        foreach ($files as $file) {
+            if (is_file($file) && !@unlink($file)) {
+                $failed[] = $file;
+            }
+        }
+
+        if ($failed !== []) {
+            throw new RuntimeException('Failed to delete: ' . implode(', ', $failed));
+        }
     }
 }
