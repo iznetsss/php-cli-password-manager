@@ -15,17 +15,18 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 final class VaultAccess
 {
-    /**
-     * Unlocks vault just for the callback, then zeroizes and rotates session.
-     * If callback returns array, it will be saved back.
-     */
     public static function withUnlocked(
         InputInterface  $input,
         OutputInterface $output,
-        callable        $callback
+        callable        $callback,
+        bool            $reEncryptOnRead = false
     ): bool
     {
         $master = Secrets::askHidden($input, $output, 'Master password: ');
+
+        $vaultKey = null;
+        $plaintext = null;
+        $newPlaintext = null;
 
         try {
             $blob = VaultStorage::load();
@@ -33,24 +34,22 @@ final class VaultAccess
 
             $bcryptHash = $header->bcryptHash();
             if ($bcryptHash === '' || !Crypto::verifyMaster($master, $bcryptHash)) {
-                Crypto::zeroize($master);
                 Audit::log('vault.access.fail', 'fail', 201, ['reason' => 'invalid_credentials']);
                 $output->writeln('<error>Invalid credentials</error>');
                 return false;
             }
 
             $salt = $header->kdf()->saltRaw();
-
             $vaultKey = Crypto::deriveVaultKey($master, $salt);
+
             $nonce = $blob->nonceRaw();
             $cipher = $blob->cipherRaw();
 
             $plaintext = Crypto::decrypt($cipher, $vaultKey, $nonce);
             $data = json_decode($plaintext, true, 512, \JSON_THROW_ON_ERROR);
 
-            $result = $callback($data, $output);
+            $result = $callback($data);
 
-            // Save only if callback returned array (modified state)
             if (is_array($result)) {
                 $newHeader = $header->withUpdatedNow();
                 $newPlaintext = json_encode($result, \JSON_THROW_ON_ERROR);
@@ -62,27 +61,33 @@ final class VaultAccess
                     base64_encode($newNonce),
                     base64_encode($newCipher)
                 );
-
                 VaultStorage::save($newBlob);
+            } elseif ($reEncryptOnRead) {
+                // Re-encrypt same plaintext with fresh nonce
+                $newNonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
+                $newCipher = Crypto::encrypt($plaintext, $vaultKey, $newNonce);
 
-                Crypto::zeroize($newPlaintext);
+                $newBlob = new VaultBlob(
+                    $header,
+                    base64_encode($newNonce),
+                    base64_encode($newCipher)
+                );
+                VaultStorage::save($newBlob);
             }
 
-            // Zeroize secrets
-            Crypto::zeroize($master);
-            Crypto::zeroize($vaultKey);
-            Crypto::zeroize($plaintext);
-
-            // Rotate session to simulate lock
             Support::rotateSession();
-
             Audit::log('vault.access', 'success', 0);
             return true;
         } catch (Throwable $e) {
-            Crypto::zeroize($master);
             Audit::log('vault.access.fail', 'fail', 299, ['reason' => 'exception']);
             $output->writeln('<error>Unable to access vault</error>');
             return false;
+        } finally {
+            if (is_string($master))       { Crypto::zeroize($master); }
+            if (is_string($vaultKey))     { Crypto::zeroize($vaultKey); }
+            if (is_string($plaintext))    { Crypto::zeroize($plaintext); }
+            if (is_string($newPlaintext)) { Crypto::zeroize($newPlaintext); }
+            Audit::log('vault.lock', 'success', 0);
         }
     }
 }

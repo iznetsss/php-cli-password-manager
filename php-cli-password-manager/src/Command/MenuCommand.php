@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Support\ConsoleUi;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\StringInput;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 use Throwable;
@@ -29,21 +29,16 @@ final class MenuCommand extends Command
         }
 
         while (true) {
+            ConsoleUi::clear($output);
+
             $commands = [];
             foreach ($app->all() as $name => $cmd) {
-                if (
-                    in_array($name, ['menu', 'list', 'help', '_complete', 'completion'], true) ||
-                    str_starts_with($name, '_')
-                ) {
+                if (in_array($name, ['menu', 'list', 'help', '_complete', 'completion'], true) || str_starts_with($name, '_')) {
                     continue;
                 }
-                $commands[] = [
-                    'name' => $name,
-                    'desc' => $cmd->getDescription(),
-                ];
+                $commands[] = ['name' => $name, 'desc' => $cmd->getDescription()];
             }
 
-            $output->writeln('');
             $output->writeln('<info>Available commands:</info>');
             foreach ($commands as $i => $c) {
                 $output->writeln(sprintf('%d) pm %s — %s', $i + 1, $c['name'], $c['desc']));
@@ -51,8 +46,7 @@ final class MenuCommand extends Command
             $output->writeln('0) Exit');
 
             $helper = new QuestionHelper();
-            $q = new Question('Select number: ');
-            $answer = trim((string)$helper->ask($input, $output, $q));
+            $answer = trim((string)$helper->ask($input, $output, new Question('Select number: ')));
 
             if ($answer === '0' || $answer === '') {
                 $output->writeln('<comment>Bye</comment>');
@@ -61,12 +55,14 @@ final class MenuCommand extends Command
 
             if (!ctype_digit($answer)) {
                 $output->writeln('<error>Invalid choice</error>');
+                ConsoleUi::waitAnyKey($input, $output);
                 continue;
             }
 
             $idx = (int)$answer - 1;
             if (!isset($commands[$idx])) {
                 $output->writeln('<error>Invalid choice</error>');
+                ConsoleUi::waitAnyKey($input, $output);
                 continue;
             }
 
@@ -78,11 +74,12 @@ final class MenuCommand extends Command
                 if ($exit !== 0) {
                     $output->writeln('<comment>Command finished with errors</comment>');
                 }
-            } catch (Throwable $e) {
+            } catch (Throwable) {
                 $output->writeln('<error>Command failed</error>');
             }
 
-            $output->writeln(''); // small gap before showing menu
+            // Centralized pause -> clear -> next loop shows clean menu
+            ConsoleUi::waitAnyKey($input, $output);
         }
     }
 }

@@ -55,3 +55,42 @@ I introduced strict DTOs at the storage boundary to harden the vault format:
 This prevents corrupted or tampered files from being accepted, keeps invariants in one place,
 and reduces the chance of unsafe dynamic arrays leaking into critical crypto paths.
 No plaintext is stored; secrets are still wiped with sodium_memzero().
+
+INPUT VALIDATION / SANITIZATION (Milestone 3)
+---------------------------------------------
+A single validator enforces strict rules for user inputs:
+
+- service: ^[A-Za-z0-9._:-]{1,255}$ (ASCII whitelist, trimmed)
+- username: controls removed, trimmed, length 1..255 (UTF-8)
+- password: length 1..4096 bytes, never trimmed or altered
+- note: controls removed, trimmed, truncated to ≤250 chars (UTF-8)
+
+Invalid inputs fail fast with short error codes (e.g., SVC_FORMAT, USR_LEN, PWD_LEN),
+which are logged for auditing. Console echoes of user values are sanitized to strip
+ANSI/control sequences to prevent terminal injection. This reduces attack surface,
+stops garbage from reaching storage/crypto, and keeps secrets intact.
+
+VAULT DATA MODEL 
+------------------------------
+Plaintext JSON: { "entries": [ ... ] }
+
+Entry fields:
+- id: UUID v4
+- service: string (validated)
+- username: string (validated)
+- password: string (validated)
+- note: string (sanitized)
+- createdAt, updatedAt: ISO 8601 (UTC)
+
+CRUD REPOSITORY
+---------------
+VaultRepository:
+- state(data) -> normalized {entries}
+- list(state, ?service)
+- add(state, DTO) -> returns { state, created }
+- getById(state, id)
+- update(state, id, patch...) -> { state, updated }
+- delete(state, id) -> { state, deleted }
+
+Each CLI command asks master, decrypts, mutates in-memory, then save() via VaultAccess.
+No long-lived keys between commands.

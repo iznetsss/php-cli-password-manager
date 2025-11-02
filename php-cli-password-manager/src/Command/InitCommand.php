@@ -41,7 +41,7 @@ final class InitCommand extends Command
             if (VaultStorage::exists()) {
                 $output->writeln('<comment>Found existing vault.</comment>');
                 $output->writeln('<comment>This will PERMANENTLY delete the old vault and logs and create a new one.</comment>');
-                $qConfirm = new Question('1) Yes  2) No  Select number: ');
+                $qConfirm = new Question("1) Yes\n2) No\nSelect number: ");
                 $choice = trim((string)$helper->ask($input, $output, $qConfirm));
 
                 if ($choice !== '1') {
