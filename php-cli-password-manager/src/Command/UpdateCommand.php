@@ -41,12 +41,84 @@ final class UpdateCommand extends Command
     {
         $helper = new QuestionHelper();
 
+        // non-interactive: patch at once
         $idOpt = (string)($input->getOption('id') ?? '');
+        if ($idOpt !== '') {
+            if (!Uuid::isValid($idOpt) || Uuid::fromString($idOpt)->getVersion() !== 4) {
+                $output->writeln('<error>Invalid id</error>');
+                return self::FAILURE;
+            }
 
-        // Interactive mode when id is not provided
-        if ($idOpt === '') {
-            $pwdTmp = null;
-            $ok = VaultAccess::withUnlocked($input, $output, function (array $data) use ($input, $output, $helper, &$pwdTmp): ?array {
+            $service = $input->getOption('service');
+            $username = $input->getOption('username');
+            $note = $input->getOption('note');
+            $wantPasswordChange = $input->getOption('password') !== null;
+
+            $passwordV = null;
+            $pwdSecret = null;
+
+            try {
+                if (is_string($service)) {
+                    $service = InputValidator::service($service);
+                }
+                if (is_string($username)) {
+                    $username = InputValidator::username($username);
+                }
+                if (is_string($note)) {
+                    $note = InputValidator::note($note);
+                }
+                if ($wantPasswordChange) {
+                    $pwdSecret = Secrets::askHidden($input, $output, 'New password: ');
+                    $passwordV = InputValidator::password($pwdSecret);
+                }
+            } catch (ValidationException $e) {
+                Audit::log('input.invalid', 'fail', 410, ['code' => $e->codeShort()]);
+                $output->writeln('<error>' . $e->getMessage() . '</error>');
+                if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
+                return self::FAILURE;
+            }
+
+            $serviceV = is_string($service) ? $service : null;
+            $usernameV = is_string($username) ? $username : null;
+            $noteV = is_string($note) ? $note : null;
+
+            $ok = VaultAccess::withUnlocked(
+                $input,
+                $output,
+                function (array $data) use ($output, $idOpt, $serviceV, $usernameV, $passwordV, $noteV): ?array {
+                    $state = VaultRepository::state($data);
+                    try {
+                        $res = VaultRepository::update($state, $idOpt, $serviceV, $usernameV, $passwordV, $noteV);
+                    } catch (RuntimeException $e) {
+                        Audit::log('entry.update.fail', 'fail', 404, ['reason' => 'not_found']);
+                        $output->writeln('<error>' . $e->getMessage() . '</error>');
+                        return null;
+                    }
+
+                    $u = $res['updated'];
+                    $output->writeln('<info>Updated</info>');
+                    // non-interactive summary (mask not needed, but keep masked to stay consistent with CLI)
+                    $this->printData($output, $u, true);
+
+                    Audit::log('entry.update', 'success', 0, ['service' => $u['service']]);
+                    return $res['state'];
+                }
+            );
+
+            if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
+            if (is_string($passwordV)) Crypto::zeroize($passwordV);
+
+            return $ok ? self::SUCCESS : self::FAILURE;
+        }
+
+        // interactive: pick entry -> show full details with password -> loop edits (each edit saves immediately)
+        $entryId = null;
+        $view = null;
+
+        $ok = VaultAccess::withUnlocked(
+            $input,
+            $output,
+            function (array $data) use ($input, $output, $helper, &$entryId, &$view): ?array {
                 $state = VaultRepository::state($data);
                 $entries = $state['entries'] ?? [];
                 if ($entries === []) {
@@ -54,7 +126,6 @@ final class UpdateCommand extends Command
                     return null;
                 }
 
-                // pick service -> entry
                 $services = ConsolePick::services($entries);
                 ConsolePick::printServices($output, $services);
                 $sel = ConsolePick::askService($input, $output, $helper, $services);
@@ -67,196 +138,175 @@ final class UpdateCommand extends Command
                 }
                 $entry = ConsolePick::pickEntry($input, $output, $helper, $candidates);
 
-                // show current data
-                ConsoleUi::clear($output);
-                $output->writeln('<info>Current data</info>');
-                $output->writeln('ID: ' . ConsoleSanitizer::safe($entry['id']));
-                $output->writeln('Service: ' . ConsoleSanitizer::safe($entry['service']));
-                $output->writeln('Username: ' . ConsoleSanitizer::safe($entry['username']));
-                $output->writeln('Created: ' . ConsoleSanitizer::safe($entry['createdAt']));
-                $output->writeln('Updated: ' . ConsoleSanitizer::safe($entry['updatedAt']));
-                if (($entry['note'] ?? '') !== '') {
-                    $output->writeln('Note: [saved]');
-                }
-                $output->writeln('Password: ' . Secrets::hiddenPlaceholder());
+                $entryId = (string)$entry['id'];
+                $view = $this->sanitizeView($entry); // includes plaintext password for interactive view
+                return null;
+            },
+            // re-encrypt on read with fresh nonce after we fetched plaintext into memory
+            reEncryptOnRead: true
+        );
 
-                $newService = null;
-                $newUser = null;
-                $newPass = null;
-                $newNote = null;
-
-                while (true) {
-                    $output->writeln('');
-                    $output->writeln("Edit:\n1) Service\n2) Username\n3) Password\n4) Note\n5) Save\n0) Cancel");
-                    $choice = trim((string)$helper->ask($input, $output, new Question('Select number: ')));
-
-                    if ($choice === '0' || $choice === '') {
-                        if (is_string($pwdTmp)) Crypto::zeroize($pwdTmp);
-                        $output->writeln('<comment>Cancelled.</comment>');
-                        return null;
-                    }
-
-                    if ($choice === '1') {
-                        $val = (string)$helper->ask($input, $output, new Question('New service: '));
-                        try {
-                            $newService = InputValidator::service($val);
-                            $output->writeln('<info>Queued</info>: service');
-                        } catch (ValidationException $e) {
-                            $output->writeln('<error>' . $e->getMessage() . '</error>');
-                        }
-                        continue;
-                    }
-
-                    if ($choice === '2') {
-                        $val = (string)$helper->ask($input, $output, new Question('New username: '));
-                        try {
-                            $newUser = InputValidator::username($val);
-                            $output->writeln('<info>Queued</info>: username');
-                        } catch (ValidationException $e) {
-                            $output->writeln('<error>' . $e->getMessage() . '</error>');
-                        }
-                        continue;
-                    }
-
-                    if ($choice === '3') {
-                        $pwd = Secrets::askHidden($input, $output, 'New password: ');
-                        try {
-                            $newPass = InputValidator::password($pwd);
-                            $pwdTmp = $pwd;
-                            $output->writeln('<info>Queued</info>: password');
-                        } catch (ValidationException $e) {
-                            $output->writeln('<error>' . $e->getMessage() . '</error>');
-                            Crypto::zeroize($pwd);
-                        }
-                        continue;
-                    }
-
-                    if ($choice === '4') {
-                        $val = (string)$helper->ask($input, $output, new Question('New note (optional): '));
-                        try {
-                            $newNote = InputValidator::note($val);
-                            $output->writeln('<info>Queued</info>: note');
-                        } catch (ValidationException $e) {
-                            $output->writeln('<error>' . $e->getMessage() . '</error>');
-                        }
-                        continue;
-                    }
-
-                    if ($choice === '5') {
-                        if ($newService === null && $newUser === null && $newPass === null && $newNote === null) {
-                            $output->writeln('<comment>Nothing to update</comment>');
-                            continue;
-                        }
-
-                        try {
-                            $res = VaultRepository::update($state, (string)$entry['id'], $newService, $newUser, $newPass, $newNote);
-                        } catch (RuntimeException $e) {
-                            if (is_string($pwdTmp)) Crypto::zeroize($pwdTmp);
-                            $output->writeln('<error>' . $e->getMessage() . '</error>');
-                            return null;
-                        }
-
-                        if (is_string($newPass)) Crypto::zeroize($newPass);
-                        if (is_string($pwdTmp)) Crypto::zeroize($pwdTmp);
-
-                        $u = $res['updated'];
-
-                        // show updated block
-                        ConsoleUi::clear($output);
-                        $output->writeln('<info>Your updated data</info>');
-                        $output->writeln('ID: ' . ConsoleSanitizer::safe($u['id']));
-                        $output->writeln('Service: ' . ConsoleSanitizer::safe($u['service']));
-                        $output->writeln('Username: ' . ConsoleSanitizer::safe($u['username']));
-                        $output->writeln('Created: ' . ConsoleSanitizer::safe($u['createdAt']));
-                        $output->writeln('Updated: ' . ConsoleSanitizer::safe($u['updatedAt']));
-                        if ($newNote !== null) {
-                            $output->writeln('Note: [updated]');
-                        } elseif (($u['note'] ?? '') !== '') {
-                            $output->writeln('Note: [saved]');
-                        }
-                        if ($newPass !== null) {
-                            $output->writeln('Password: [updated]');
-                        } else {
-                            $output->writeln('Password: ' . Secrets::hiddenPlaceholder());
-                        }
-
-                        Audit::log('entry.update', 'success', 0, ['service' => $u['service']]);
-
-                        // pause then wipe screen; vault already re-encrypted on save
-                        ConsoleUi::waitAnyKey($input, $output);
-                        ConsoleUi::clear($output);
-
-                        return $res['state'];
-                    }
-
-                    $output->writeln('<error>Invalid choice</error>');
-                }
-            }, reEncryptOnRead: true);
-
-            return $ok ? self::SUCCESS : self::FAILURE;
-        }
-
-        if (!Uuid::isValid($idOpt) || Uuid::fromString($idOpt)->getVersion() !== 4) {
-            $output->writeln('<error>Invalid id</error>');
+        if (!$ok || !is_string($entryId) || $entryId === '' || !is_array($view)) {
             return self::FAILURE;
         }
 
-        $service = $input->getOption('service');
-        $username = $input->getOption('username');
-        $note = $input->getOption('note');
-        $wantPasswordChange = $input->getOption('password') !== null;
+        // show with password visible
+        $this->renderScreen($output, $view, showPassword: true);
 
-        $passwordV = null;
-        $pwdSecret = null;
+        while (true) {
+            $output->writeln('');
+            $output->writeln("Edit:\n1) Service\n2) Username\n3) Password\n4) Note\n0) Back");
+            $choice = trim((string)$helper->ask($input, $output, new Question('Select number: ')));
 
-        try {
-            if (is_string($service)) $service = InputValidator::service($service);
-            if (is_string($username)) $username = InputValidator::username($username);
-            if (is_string($note)) $note = InputValidator::note($note);
-            if ($wantPasswordChange) {
-                $pwdSecret = Secrets::askHidden($input, $output, 'New password: ');
-                $passwordV = InputValidator::password($pwdSecret);
+            if ($choice === '0' || $choice === '') {
+                $output->writeln('<comment>Done.</comment>');
+                return self::SUCCESS;
             }
-        } catch (ValidationException $e) {
-            Audit::log('input.invalid', 'fail', 410, ['code' => $e->codeShort()]);
-            $output->writeln('<error>' . $e->getMessage() . '</error>');
-            if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
-            return self::FAILURE;
-        }
 
-        $serviceV = is_string($service) ? $service : null;
-        $usernameV = is_string($username) ? $username : null;
-        $noteV = is_string($note) ? $note : null;
+            if ($choice === '1') {
+                $val = (string)$helper->ask($input, $output, new Question('New service: '));
+                try {
+                    $val = InputValidator::service($val);
+                } catch (ValidationException $e) {
+                    $this->inlineError($output, $e->getMessage());
+                    continue;
+                }
+
+                $updated = $this->applyOneField($input, $output, $entryId, service: $val);
+                if ($updated !== null) {
+                    $view = $this->sanitizeView($updated);
+                    $this->renderScreen($output, $view, showPassword: true);
+                }
+                continue;
+            }
+
+            if ($choice === '2') {
+                $val = (string)$helper->ask($input, $output, new Question('New username: '));
+                try {
+                    $val = InputValidator::username($val);
+                } catch (ValidationException $e) {
+                    $this->inlineError($output, $e->getMessage());
+                    continue;
+                }
+
+                $updated = $this->applyOneField($input, $output, $entryId, username: $val);
+                if ($updated !== null) {
+                    $view = $this->sanitizeView($updated);
+                    $this->renderScreen($output, $view, showPassword: true);
+                }
+                continue;
+            }
+
+            if ($choice === '3') {
+                $pwd = Secrets::askHidden($input, $output, 'New password: ');
+                try {
+                    $pwdV = InputValidator::password($pwd);
+                } catch (ValidationException $e) {
+                    Crypto::zeroize($pwd);
+                    $this->inlineError($output, $e->getMessage());
+                    continue;
+                }
+
+                $updated = $this->applyOneField($input, $output, $entryId, password: $pwdV);
+                Crypto::zeroize($pwdV);
+                Crypto::zeroize($pwd);
+                if ($updated !== null) {
+                    $view = $this->sanitizeView($updated);
+                    $this->renderScreen($output, $view, showPassword: true);
+                }
+                continue;
+            }
+
+            if ($choice === '4') {
+                $val = (string)$helper->ask($input, $output, new Question('New note (optional): '));
+                try {
+                    $val = InputValidator::note($val);
+                } catch (ValidationException $e) {
+                    $this->inlineError($output, $e->getMessage());
+                    continue;
+                }
+
+                $updated = $this->applyOneField($input, $output, $entryId, note: $val);
+                if ($updated !== null) {
+                    $view = $this->sanitizeView($updated);
+                    $this->renderScreen($output, $view, showPassword: true);
+                }
+                continue;
+            }
+
+            $this->inlineError($output, 'Invalid choice');
+        }
+    }
+
+    // single-field update with separate unlock/save
+    private function applyOneField(
+        InputInterface  $input,
+        OutputInterface $output,
+        string          $entryId,
+        ?string         $service = null,
+        ?string         $username = null,
+        ?string         $password = null,
+        ?string         $note = null
+    ): ?array
+    {
+        $updated = null;
 
         $ok = VaultAccess::withUnlocked(
             $input,
             $output,
-            function (array $data) use ($output, $idOpt, $serviceV, $usernameV, $passwordV, $noteV): ?array {
+            function (array $data) use ($output, $entryId, $service, $username, $password, $note, &$updated): ?array {
                 $state = VaultRepository::state($data);
                 try {
-                    $res = VaultRepository::update($state, $idOpt, $serviceV, $usernameV, $passwordV, $noteV);
+                    $res = VaultRepository::update($state, $entryId, $service, $username, $password, $note);
                 } catch (RuntimeException $e) {
                     Audit::log('entry.update.fail', 'fail', 404, ['reason' => 'not_found']);
                     $output->writeln('<error>' . $e->getMessage() . '</error>');
                     return null;
                 }
-
-                $u = $res['updated'];
-                $output->writeln('<info>Updated</info>');
-                $output->writeln('ID: ' . ConsoleSanitizer::safe($u['id']));
-                $output->writeln('Service: ' . ConsoleSanitizer::safe($u['service']));
-                $output->writeln('Username: ' . ConsoleSanitizer::safe($u['username']));
-                if ($noteV !== null) $output->writeln('Note: [updated]');
-                if ($passwordV !== null) $output->writeln('Password: [updated]');
-
-                Audit::log('entry.update', 'success', 0, ['service' => $u['service']]);
+                $updated = $res['updated'];
+                Audit::log('entry.update', 'success', 0, ['service' => $updated['service']]);
                 return $res['state'];
             }
         );
 
-        if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
-        if (is_string($passwordV)) Crypto::zeroize($passwordV);
+        return ($ok && is_array($updated)) ? $updated : null;
+    }
 
-        return $ok ? self::SUCCESS : self::FAILURE;
+    private function renderScreen(OutputInterface $output, array $entryView, bool $showPassword): void
+    {
+        ConsoleUi::clear($output);
+        $output->writeln('<info>Current data</info>');
+        $this->printData($output, $entryView, $maskPwd = !$showPassword);
+    }
+
+    private function printData(OutputInterface $output, array $e, bool $maskPwd): void
+    {
+        $output->writeln('ID: ' . ConsoleSanitizer::safe((string)$e['id']));
+        $output->writeln('Service: ' . ConsoleSanitizer::safe((string)$e['service']));
+        $output->writeln('Username: ' . ConsoleSanitizer::safe((string)$e['username']));
+        $output->writeln('Created: ' . ConsoleSanitizer::safe((string)$e['createdAt']));
+        $output->writeln('Updated: ' . ConsoleSanitizer::safe((string)$e['updatedAt']));
+        $note = (string)($e['note'] ?? '');
+        $output->writeln('Note: ' . ($note === '' ? '[empty]' : ConsoleSanitizer::safe($note)));
+        $pwd = (string)($e['password'] ?? '');
+        $output->writeln('Password: ' . ($maskPwd ? Secrets::hiddenPlaceholder() : ConsoleSanitizer::safe($pwd)));
+    }
+
+    private function sanitizeView(array $e): array
+    {
+        return [
+            'id' => (string)$e['id'],
+            'service' => (string)$e['service'],
+            'username' => (string)$e['username'],
+            'note' => (string)($e['note'] ?? ''),
+            'createdAt' => (string)$e['createdAt'],
+            'updatedAt' => (string)$e['updatedAt'],
+            'password' => (string)($e['password'] ?? ''),
+        ];
+    }
+
+    private function inlineError(OutputInterface $output, string $msg): void
+    {
+        $output->writeln('<error>' . $msg . '</error>');
     }
 }
