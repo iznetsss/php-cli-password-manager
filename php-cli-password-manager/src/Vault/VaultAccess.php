@@ -40,12 +40,13 @@ final class VaultAccess
             }
 
             $salt = $header->kdf()->saltRaw();
-            $vaultKey = Crypto::deriveVaultKey($master, $salt);
+            $vaultKey = Crypto::deriveVaultKey($master, $salt, 'MEDIUM');
 
             $nonce = $blob->nonceRaw();
             $cipher = $blob->cipherRaw();
 
-            $plaintext = Crypto::decrypt($cipher, $vaultKey, $nonce);
+            $aad = hash('sha256', json_encode($header->toArray(), \JSON_THROW_ON_ERROR), true);
+            $plaintext = Crypto::decrypt($cipher, $vaultKey, $nonce, $aad);
             $data = json_decode($plaintext, true, 512, \JSON_THROW_ON_ERROR);
 
             $result = $callback($data);
@@ -54,7 +55,8 @@ final class VaultAccess
                 $newHeader = $header->withUpdatedNow();
                 $newPlaintext = json_encode($result, \JSON_THROW_ON_ERROR);
                 $newNonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-                $newCipher = Crypto::encrypt($newPlaintext, $vaultKey, $newNonce);
+                $newAad = hash('sha256', json_encode($newHeader->toArray(), \JSON_THROW_ON_ERROR), true);
+                $newCipher = Crypto::encrypt($newPlaintext, $vaultKey, $newNonce, $newAad);
 
                 $newBlob = new VaultBlob(
                     $newHeader,
@@ -63,9 +65,9 @@ final class VaultAccess
                 );
                 VaultStorage::save($newBlob);
             } elseif ($reEncryptOnRead) {
-                // Re-encrypt same plaintext with fresh nonce
                 $newNonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-                $newCipher = Crypto::encrypt($plaintext, $vaultKey, $newNonce);
+                $newAad = hash('sha256', json_encode($header->toArray(), \JSON_THROW_ON_ERROR), true);
+                $newCipher = Crypto::encrypt($plaintext, $vaultKey, $newNonce, $newAad);
 
                 $newBlob = new VaultBlob(
                     $header,
@@ -83,10 +85,18 @@ final class VaultAccess
             $output->writeln('<error>Unable to access vault</error>');
             return false;
         } finally {
-            if (is_string($master))       { Crypto::zeroize($master); }
-            if (is_string($vaultKey))     { Crypto::zeroize($vaultKey); }
-            if (is_string($plaintext))    { Crypto::zeroize($plaintext); }
-            if (is_string($newPlaintext)) { Crypto::zeroize($newPlaintext); }
+            if (is_string($master)) {
+                Crypto::zeroize($master);
+            }
+            if (is_string($vaultKey)) {
+                Crypto::zeroize($vaultKey);
+            }
+            if (is_string($plaintext)) {
+                Crypto::zeroize($plaintext);
+            }
+            if (is_string($newPlaintext)) {
+                Crypto::zeroize($newPlaintext);
+            }
             Audit::log('vault.lock', 'success', 0);
         }
     }

@@ -9,10 +9,14 @@ KDF (VAULT KEY DERIVATION)
 --------------------------
 Algorithm:
 sodium_crypto_pwhash (Argon2id)
-Parameters:
-OPSLIMIT_MODERATE
-MEMLIMIT_MODERATE (~64–128 MiB)
-Salt: exactly SODIUM_CRYPTO_PWHASH_SALTBYTES (16 bytes)
+
+Profiles:
+LIGHT    → libsodium INTERACTIVE
+MEDIUM   → libsodium MODERATE  (default)
+HEAVY    → libsodium SENSITIVE
+
+Parameters stored in header:
+name=argon2id, opslimit=MEDIUM, memlimit=MEDIUM, salt=16 bytes (base64)
 
 ENCRYPTION
 -----------
@@ -20,7 +24,8 @@ Algorithm:
 sodium_crypto_aead_xchacha20poly1305_ietf_*
 Parameters:
 nonce = 24 bytes from random_bytes()
-AAD = "php-cli-password-manager:v1"
+AAD = SHA-256 over the serialized VaultHeader (JSON, raw 32-byte output)
+- Any change to the header breaks authentication and decryption.
 
 ZEROIZATION
 -----------

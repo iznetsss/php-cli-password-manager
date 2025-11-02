@@ -18,15 +18,12 @@ final readonly class KdfParams
         if ($name !== 'argon2id') {
             throw new RuntimeException('KDF name must be argon2id');
         }
-
-        $allowed = ['MODERATE'];
-        if (!in_array($opslimit, $allowed, true)) {
+        if (strtoupper($opslimit) !== 'MEDIUM') {
             throw new RuntimeException('Invalid opslimit');
         }
-        if (!in_array($memlimit, $allowed, true)) {
+        if (strtoupper($memlimit) !== 'MEDIUM') {
             throw new RuntimeException('Invalid memlimit');
         }
-
         $raw = base64_decode($saltB64, true);
         if ($raw === false || strlen($raw) !== SODIUM_CRYPTO_PWHASH_SALTBYTES) {
             throw new RuntimeException('Invalid KDF salt');
@@ -55,7 +52,6 @@ final readonly class KdfParams
 
     public function saltRaw(): string
     {
-        /** @var string|false $raw */
         $raw = base64_decode($this->saltB64, true);
         if ($raw === false) {
             throw new RuntimeException('Invalid base64 salt');

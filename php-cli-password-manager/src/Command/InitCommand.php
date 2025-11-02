@@ -98,13 +98,14 @@ final class InitCommand extends Command
 
             $bcryptHash = Crypto::hashMaster($master1);
             $vaultSalt = random_bytes(SODIUM_CRYPTO_PWHASH_SALTBYTES);
-            $vaultKey = Crypto::deriveVaultKey($master1, $vaultSalt);
+            $kdfLevel = 'MEDIUM';
+            $vaultKey = Crypto::deriveVaultKey($master1, $vaultSalt, $kdfLevel);
 
             $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
             $kdf = new KdfParams(
                 'argon2id',
-                'MODERATE',
-                'MODERATE',
+                $kdfLevel,
+                $kdfLevel,
                 base64_encode($vaultSalt)
             );
 
@@ -119,7 +120,8 @@ final class InitCommand extends Command
 
             $plaintext = json_encode(['entries' => []], JSON_THROW_ON_ERROR);
             $nonce = random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-            $cipher = Crypto::encrypt($plaintext, $vaultKey, $nonce);
+            $aad = hash('sha256', json_encode($header->toArray(), JSON_THROW_ON_ERROR), true);
+            $cipher = Crypto::encrypt($plaintext, $vaultKey, $nonce, $aad);
 
             $blob = new VaultBlob(
                 $header,
