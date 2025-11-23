@@ -9,9 +9,9 @@ use App\Support\Audit;
 use App\Support\Secrets;
 use App\Support\Support;
 use App\Vault\Model\VaultBlob;
-use Throwable;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Throwable;
 
 final class VaultAccess
 {
@@ -22,6 +22,12 @@ final class VaultAccess
         bool            $reEncryptOnRead = false
     ): bool
     {
+        if (!VaultStorage::exists()) {
+            Audit::log('vault.access.fail', 'fail', 200, ['reason' => 'not_initialized']);
+            $output->writeln('<error>Vault not initialized. Run "pm init" first.</error>');
+            return false;
+        }
+
         $master = Secrets::askHidden($input, $output, 'Master password: ');
 
         $vaultKey = null;

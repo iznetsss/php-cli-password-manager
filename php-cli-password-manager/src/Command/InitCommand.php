@@ -14,6 +14,7 @@ use App\Vault\Model\KdfParams;
 use App\Vault\Model\VaultHeader;
 use App\Vault\Model\VaultBlob;
 use Ramsey\Uuid\Uuid;
+use RuntimeException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -74,7 +75,13 @@ final class InitCommand extends Command
 
                 Audit::log('vault.purge.start', 'info', 0);
                 LoggerFactory::shutdown();
-                VaultStorage::purge(true);
+
+                try {
+                    VaultStorage::purge(true);
+                } catch (RuntimeException $e) {
+                    $output->writeln('<error>' . $e->getMessage() . '</error>');
+                    return self::FAILURE;
+                }
 
                 Support::rotateSession();
             }

@@ -6,6 +6,7 @@ namespace App\Vault;
 
 use App\Platform\Paths;
 use App\Platform\Permissions;
+use App\Platform\ProcessLock;
 use App\Support\Audit;
 use App\Vault\Model\VaultBlob;
 use RuntimeException;
@@ -67,6 +68,11 @@ final class VaultStorage
 
     public static function purge(bool $includeLogs = true): void
     {
+        // Allow only when the app holds the lock
+        if (!ProcessLock::isAcquired()) {
+            throw new RuntimeException('Purge requires application lock');
+        }
+
         Paths::ensureDataDir();
 
         $files = [

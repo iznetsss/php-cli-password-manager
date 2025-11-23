@@ -8,8 +8,17 @@ final class Paths
 {
     public static function dataDir(): string
     {
-        $home = rtrim((string) getenv('HOME'), '/');
-        return $home . '/.local/share/php-cli-password-manager';
+        $envDir = rtrim((string)getenv('PM_DATA_DIR'), '/');
+        if ($envDir !== '') {
+            return $envDir;
+        }
+
+        // project-local default: php-cli-password-manager/vaults
+        $projectDir = realpath(__DIR__ . '/../../..');
+        if ($projectDir === false) {
+            $projectDir = getcwd();
+        }
+        return $projectDir . '/vaults';
     }
 
     public static function vaultPath(): string
@@ -29,6 +38,11 @@ final class Paths
             mkdir($dir, 0700, true);
         }
         @chmod($dir, 0700);
+    }
+
+    public static function lockPath(): string
+    {
+        return self::dataDir() . '/vault.lock';
     }
 
     public static function ensureFilePerms(string $path): void

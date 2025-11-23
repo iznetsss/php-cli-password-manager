@@ -14,6 +14,7 @@ use App\Validation\ValidationException;
 use App\Vault\Model\CredentialInput;
 use App\Vault\VaultAccess;
 use App\Vault\VaultRepository;
+use App\Vault\VaultStorage;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -36,9 +37,16 @@ final class AddCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if (!VaultStorage::exists()) {
+            Audit::log('vault.access.fail', 'fail', 200, ['reason' => 'not_initialized']);
+            Audit::log('entry.add.fail', 'fail', 401, ['reason' => 'not_initialized']);
+            $output->writeln('<error>Vault not initialized. Run "pm init" first.</error>');
+            return self::FAILURE;
+        }
+
         $helper = new QuestionHelper();
 
-        // 1) Collect non-secret fields interactively if missing
+        // 1. Collect non-secret fields interactively if missing
         $serviceRaw = (string)$input->getOption('service');
         if ($serviceRaw === '') {
             $q = new Question('Service: ');
@@ -65,7 +73,7 @@ final class AddCommand extends Command
             $noteRaw = (string)$helper->ask($input, $output, $q);
         }
 
-        // 2) Validate non-secrets first, fail early without touching secrets
+        // 2. Validate non-secrets first, fail early without touching secrets
         try {
             $service = InputValidator::service($serviceRaw);
             $username = InputValidator::username($usernameRaw);
@@ -76,7 +84,7 @@ final class AddCommand extends Command
             return self::FAILURE;
         }
 
-        // 3) Only now ask for the secret
+        // 3. Only now ask for the secret
         $password = Secrets::askHidden($input, $output, 'Password: ');
         try {
             $password = InputValidator::password($password);

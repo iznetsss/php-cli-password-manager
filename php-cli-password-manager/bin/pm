@@ -11,6 +11,8 @@ use App\Command\GetCommand;
 use App\Command\InitCommand;
 use App\Command\MenuCommand;
 use App\Command\UpdateCommand;
+use App\Platform\Paths;
+use App\Platform\ProcessLock;
 use App\Support\ErrorHandler;
 use App\Support\LoggerFactory;
 use Symfony\Component\Console\Application;
@@ -19,6 +21,18 @@ use Symfony\Component\Console\Command\ListCommand;
 umask(0077);
 
 ErrorHandler::register();
+
+Paths::ensureDataDir();
+
+if (!ProcessLock::acquire()) {
+    fwrite(STDERR, "Another instance is running. Close it first.\n");
+    exit(1);
+}
+
+// Release on shutdown
+register_shutdown_function(static function (): void {
+    ProcessLock::release();
+});
 
 $application = new Application('php-cli-password-manager', '0.1.0');
 $application->add(new MenuCommand());

@@ -19,5 +19,6 @@ final class ErrorHandler
             }
             LoggerFactory::get()->error('shutdown_error', $lastError);
         });
+
     }
 }
