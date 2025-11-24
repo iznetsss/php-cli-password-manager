@@ -33,14 +33,13 @@ final class Clipboard
         }
 
         $descriptors = [
-            0 => ['pipe', 'w'],
+            0 => ['pipe', 'r'], // child reads stdin
             1 => ['file', '/dev/null', 'w'],
             2 => ['file', '/dev/null', 'w'],
         ];
 
-        $env = [
-            'DISPLAY' => (string)getenv('DISPLAY'),
-        ];
+        $env = $_ENV;
+        $env['DISPLAY'] = (string)getenv('DISPLAY');
 
         $process = @proc_open('xclip -selection clipboard -in', $descriptors, $pipes, null, $env);
         if (!is_resource($process)) {
@@ -61,7 +60,8 @@ final class Clipboard
                 return false;
             }
 
-            // Do not wait for xclip, avoid blocking
+            @proc_close($process);
+
             return true;
         } catch (\Throwable) {
             if (isset($pipes[0]) && is_resource($pipes[0])) {
