@@ -78,8 +78,12 @@ final class InitCommand extends Command
 
                 try {
                     VaultStorage::purge(true);
-                } catch (RuntimeException $e) {
-                    $output->writeln('<error>' . $e->getMessage() . '</error>');
+                } catch (RuntimeException $exception) {
+                    Audit::log('vault.purge.fail', 'fail', 312, [
+                        'reason' => 'purge_failed',
+                        'error' => $exception->getMessage(),
+                    ]);
+                    $output->writeln('<error>Unable to purge vault files</error>');
                     return self::FAILURE;
                 }
 

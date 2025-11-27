@@ -29,19 +29,44 @@ if (!ProcessLock::acquire()) {
     exit(1);
 }
 
+// Handle signals (Ctrl+C, kill, Ctrl+Z)
+if (PHP_SAPI === 'cli' && function_exists('pcntl_signal')) {
+    if (function_exists('pcntl_async_signals')) {
+        pcntl_async_signals(true);
+    }
+
+    $signalHandler = static function (int $signal): void {
+        // Release lock and shutdown logger on signal
+        ProcessLock::release();
+        LoggerFactory::shutdown();
+        exit(1);
+    };
+
+    pcntl_signal(SIGINT, $signalHandler);  // Ctrl+C
+    pcntl_signal(SIGTERM, $signalHandler); // kill
+    if (defined('SIGHUP')) {
+        pcntl_signal(SIGHUP, $signalHandler);
+    }
+    if (defined('SIGTSTP')) {
+        // Ctrl+Z: treat as clean exit instead of stop
+        pcntl_signal(SIGTSTP, $signalHandler);
+    }
+}
+
 // Release on shutdown
 register_shutdown_function(static function (): void {
     ProcessLock::release();
+    LoggerFactory::shutdown();
 });
 
 $application = new Application('php-cli-password-manager', '0.1.0');
-$application->add(new MenuCommand());
-$application->add(new InitCommand());
-$application->add(new AddCommand());
-$application->add(new ListCommand());
-$application->add(new GetCommand());
-$application->add(new UpdateCommand());
-$application->add(new DeleteCommand());
+$application->addCommand(new MenuCommand());
+$application->addCommand(new InitCommand());
+$application->addCommand(new AddCommand());
+$application->addCommand(new ListCommand());
+$application->addCommand(new GetCommand());
+$application->addCommand(new UpdateCommand());
+$application->addCommand(new DeleteCommand());
 
 $application->setDefaultCommand('menu', true);
 
