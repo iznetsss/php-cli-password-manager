@@ -18,7 +18,7 @@ The application is used only through an interactive console menu. All operations
 
 ## Requirements
 
-- PHP 8.4 CLI
+- PHP 8.4 CLI [Php Installation](https://www.php.net/downloads.php?usage=web&os=linux&osvariant=linux-debian&version=8.4)
 - PHP extensions:
     - `ext-sodium` (included automatically in `php8.4-common`)
     - `ext-pcntl` (included automatically in `php8.4-cli`)
