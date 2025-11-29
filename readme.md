@@ -20,15 +20,25 @@ The application is used only through an interactive console menu. All operations
 
 - PHP 8.4 CLI
 - PHP extensions:
-    - `ext-sodium`
-    - `ext-pcntl`
-- Composer (for installing PHP dependencies)
-- Unix-like OS (Linux recommended)
+    - `ext-sodium` (included automatically in `php8.4-common`)
+    - `ext-pcntl` (included automatically in `php8.4-cli`)
+- Composer (for installing PHP dependencies) - [Get Composer](https://getcomposer.org/download/)
+- Unix-like OS (Linux recommended, tested on Ubuntu 24.04)
 
-Optional for clipboard support:
+### Checking that required PHP extensions are installed
 
-- Linux desktop with X11
-- `xclip` installed and `DISPLAY` set
+Both required extensions come bundled with base PHP 8.4 packages:
+
+| PHP Extension | Provided By |
+|---------------|-------------|
+| sodium        | php8.4-common |
+| pcntl         | php8.4-cli |
+
+To verify that both are installed and active:
+
+```bash
+php -m | grep -E "sodium|pcntl"
+```
 
 ## Frameworks and Libraries
 
@@ -40,7 +50,6 @@ This project uses:
 - Ramsey UUID (`ramsey/uuid`)
 - Respect Validation (`respect/validation`)
 - PHP extensions `ext-sodium` and `ext-pcntl`
-
 
 ## Installation
 
@@ -156,7 +165,6 @@ For password changes, the new password is entered through a hidden prompt. All i
     - Show the selected entry and ask you to confirm deletion.
 
 If you do not confirm, nothing is removed.
-
 
 ## Security Notes
 
