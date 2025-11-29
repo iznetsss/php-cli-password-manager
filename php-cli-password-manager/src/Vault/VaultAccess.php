@@ -87,7 +87,10 @@ final class VaultAccess
             Audit::log('vault.access', 'success', 0);
             return true;
         } catch (Throwable $e) {
-            Audit::log('vault.access.fail', 'fail', 299, ['reason' => 'exception']);
+            Audit::log('vault.access.fail', 'fail', 299, [
+                'reason' => 'exception',
+                'error' => $e->getMessage(),
+            ]);
             $output->writeln('<error>Unable to access vault</error>');
             return false;
         } finally {

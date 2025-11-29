@@ -16,9 +16,23 @@ final class ConsolePick
     public static function services(array $entries): array
     {
         $map = [];
-        foreach ($entries as $e) $map[(string)($e['service'] ?? '')] = true;
+        foreach ($entries as $e) {
+            $name = (string)($e['service'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $map[$name] = true;
+        }
+
         $services = array_keys($map);
-        sort($services, SORT_NATURAL | SORT_FLAG_CASE);
+        sort($services, \SORT_NATURAL | \SORT_FLAG_CASE);
+
+        // Force all values to be strings
+        foreach ($services as &$name) {
+            $name = (string)$name;
+        }
+        unset($name);
+
         return $services;
     }
 
@@ -27,7 +41,11 @@ final class ConsolePick
     {
         $output->writeln('Services:');
         foreach ($services as $i => $name) {
-            $output->writeln(sprintf('%d. %s', $i + 1, ConsoleSanitizer::safe($name)));
+            $output->writeln(sprintf(
+                '%d. %s',
+                $i + 1,
+                ConsoleSanitizer::safe((string)$name)
+            ));
         }
     }
 
@@ -39,14 +57,22 @@ final class ConsolePick
         array           $services
     ): ?string
     {
-        $ans = trim((string)$helper->ask($input, $output, new Question('Please, choose service: ')));
+        $ans = trim((string)$helper->ask(
+            $input,
+            $output,
+            new Question('Please, choose service: ')
+        ));
+
         $sel = $ans;
-        if (ctype_digit($ans) && $ans !== '0') {
+        if ($ans !== '' && ctype_digit($ans) && $ans !== '0') {
             $idx = (int)$ans - 1;
-            if (isset($services[$idx])) $sel = $services[$idx];
+            if (isset($services[$idx])) {
+                $sel = $services[$idx];
+            }
         }
+
         try {
-            return InputValidator::service($sel);
+            return InputValidator::service((string)$sel);
         } catch (ValidationException) {
             $output->writeln('<error>Invalid service</error>');
             return null;
@@ -58,7 +84,12 @@ final class ConsolePick
     {
         $output->writeln('Entries:');
         foreach ($candidates as $i => $e) {
-            $output->writeln(sprintf('%d) %s [%s]', $i + 1, ConsoleSanitizer::safe($e['username'] ?? ''), substr((string)($e['id'] ?? ''), 0, 8)));
+            $output->writeln(sprintf(
+                '%d) %s [%s]',
+                $i + 1,
+                ConsoleSanitizer::safe((string)($e['username'] ?? '')),
+                substr((string)($e['id'] ?? ''), 0, 8)
+            ));
         }
     }
 
@@ -70,12 +101,25 @@ final class ConsolePick
         array           $candidates
     ): array
     {
-        if (count($candidates) === 1) return $candidates[0];
-        self::printEntries($output, $candidates);
-        $pick = trim((string)$helper->ask($input, $output, new Question('Choose entry number: ')));
-        if (ctype_digit($pick) && $pick !== '0' && isset($candidates[(int)$pick - 1])) {
-            return $candidates[(int)$pick - 1];
+        if (count($candidates) === 1) {
+            return $candidates[0];
         }
+
+        self::printEntries($output, $candidates);
+
+        $pick = trim((string)$helper->ask(
+            $input,
+            $output,
+            new Question('Choose entry number: ')
+        ));
+
+        if ($pick !== '' && ctype_digit($pick) && $pick !== '0') {
+            $idx = (int)$pick - 1;
+            if (isset($candidates[$idx])) {
+                return $candidates[$idx];
+            }
+        }
+
         return $candidates[0];
     }
 }

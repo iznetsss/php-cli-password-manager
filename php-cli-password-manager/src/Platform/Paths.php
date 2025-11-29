@@ -13,11 +13,12 @@ final class Paths
             return $envDir;
         }
 
-        // project-local default: php-cli-password-manager/vaults
-        $projectDir = realpath(__DIR__ . '/../../..');
+        // project-local default: <project_root>/vaults
+        $projectDir = realpath(__DIR__ . '/../..');
         if ($projectDir === false) {
             $projectDir = getcwd();
         }
+
         return $projectDir . '/vaults';
     }
 

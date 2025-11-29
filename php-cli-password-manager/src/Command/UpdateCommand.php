@@ -74,7 +74,9 @@ final class UpdateCommand extends Command
             } catch (ValidationException $e) {
                 Audit::log('input.invalid', 'fail', 410, ['code' => $e->codeShort()]);
                 $output->writeln('<error>' . $e->getMessage() . '</error>');
-                if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
+                if (is_string($pwdSecret)) {
+                    Crypto::zeroize($pwdSecret);
+                }
                 return self::FAILURE;
             }
 
@@ -97,21 +99,24 @@ final class UpdateCommand extends Command
 
                     $u = $res['updated'];
                     $output->writeln('<info>Updated</info>');
-                    // non-interactive summary (mask not needed, but keep masked to stay consistent with CLI)
-                    $this->printData($output, $u, true);
+                    $this->printData($output, $u);
 
                     Audit::log('entry.update', 'success', 0, ['service' => $u['service']]);
                     return $res['state'];
                 }
             );
 
-            if (is_string($pwdSecret)) Crypto::zeroize($pwdSecret);
-            if (is_string($passwordV)) Crypto::zeroize($passwordV);
+            if (is_string($pwdSecret)) {
+                Crypto::zeroize($pwdSecret);
+            }
+            if (is_string($passwordV)) {
+                Crypto::zeroize($passwordV);
+            }
 
             return $ok ? self::SUCCESS : self::FAILURE;
         }
 
-        // interactive: pick entry -> show full details with password -> loop edits (each edit saves immediately)
+        // interactive: pick entry -> show data (password always hidden) -> loop edits
         $entryId = null;
         $view = null;
 
@@ -129,7 +134,9 @@ final class UpdateCommand extends Command
                 $services = ConsolePick::services($entries);
                 ConsolePick::printServices($output, $services);
                 $sel = ConsolePick::askService($input, $output, $helper, $services);
-                if ($sel === null) return null;
+                if ($sel === null) {
+                    return null;
+                }
 
                 $candidates = VaultRepository::list($state, $sel);
                 if ($candidates === []) {
@@ -139,7 +146,7 @@ final class UpdateCommand extends Command
                 $entry = ConsolePick::pickEntry($input, $output, $helper, $candidates);
 
                 $entryId = (string)$entry['id'];
-                $view = $this->sanitizeView($entry); // includes plaintext password for interactive view
+                $view = $this->sanitizeView($entry);
                 return null;
             },
             // re-encrypt on read with fresh nonce after we fetched plaintext into memory
@@ -150,8 +157,7 @@ final class UpdateCommand extends Command
             return self::FAILURE;
         }
 
-        // show with password visible
-        $this->renderScreen($output, $view, showPassword: true);
+        $this->renderScreen($output, $view);
 
         while (true) {
             $output->writeln('');
@@ -175,7 +181,7 @@ final class UpdateCommand extends Command
                 $updated = $this->applyOneField($input, $output, $entryId, service: $val);
                 if ($updated !== null) {
                     $view = $this->sanitizeView($updated);
-                    $this->renderScreen($output, $view, showPassword: true);
+                    $this->renderScreen($output, $view);
                 }
                 continue;
             }
@@ -192,7 +198,7 @@ final class UpdateCommand extends Command
                 $updated = $this->applyOneField($input, $output, $entryId, username: $val);
                 if ($updated !== null) {
                     $view = $this->sanitizeView($updated);
-                    $this->renderScreen($output, $view, showPassword: true);
+                    $this->renderScreen($output, $view);
                 }
                 continue;
             }
@@ -212,7 +218,7 @@ final class UpdateCommand extends Command
                 Crypto::zeroize($pwd);
                 if ($updated !== null) {
                     $view = $this->sanitizeView($updated);
-                    $this->renderScreen($output, $view, showPassword: true);
+                    $this->renderScreen($output, $view);
                 }
                 continue;
             }
@@ -229,7 +235,7 @@ final class UpdateCommand extends Command
                 $updated = $this->applyOneField($input, $output, $entryId, note: $val);
                 if ($updated !== null) {
                     $view = $this->sanitizeView($updated);
-                    $this->renderScreen($output, $view, showPassword: true);
+                    $this->renderScreen($output, $view);
                 }
                 continue;
             }
@@ -272,14 +278,14 @@ final class UpdateCommand extends Command
         return ($ok && is_array($updated)) ? $updated : null;
     }
 
-    private function renderScreen(OutputInterface $output, array $entryView, bool $showPassword): void
+    private function renderScreen(OutputInterface $output, array $entryView): void
     {
         ConsoleUi::clear($output);
         $output->writeln('<info>Current data</info>');
-        $this->printData($output, $entryView, $maskPwd = !$showPassword);
+        $this->printData($output, $entryView);
     }
 
-    private function printData(OutputInterface $output, array $e, bool $maskPwd): void
+    private function printData(OutputInterface $output, array $e): void
     {
         $output->writeln('ID: ' . ConsoleSanitizer::safe((string)$e['id']));
         $output->writeln('Service: ' . ConsoleSanitizer::safe((string)$e['service']));
@@ -288,8 +294,7 @@ final class UpdateCommand extends Command
         $output->writeln('Updated: ' . ConsoleSanitizer::safe((string)$e['updatedAt']));
         $note = (string)($e['note'] ?? '');
         $output->writeln('Note: ' . ($note === '' ? '[empty]' : ConsoleSanitizer::safe($note)));
-        $pwd = (string)($e['password'] ?? '');
-        $output->writeln('Password: ' . ($maskPwd ? Secrets::hiddenPlaceholder() : ConsoleSanitizer::safe($pwd)));
+        $output->writeln('Password: ' . Secrets::hiddenPlaceholder());
     }
 
     private function sanitizeView(array $e): array

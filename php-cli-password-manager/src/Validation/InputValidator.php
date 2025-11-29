@@ -36,13 +36,20 @@ final class InputValidator
         return $u;
     }
 
-    /** password: bytes length 1..4096, do NOT trim or alter */
+
+    /** password: bytes length 1..4096, must be valid UTF-8 */
     public static function password(string $raw): string
     {
-        $n = strlen($raw);
-        if ($n < 1 || $n > 4096) {
+        $length = strlen($raw);
+        if ($length < 1 || $length > 4096) {
             throw new ValidationException('PWD_LEN', 'Invalid password');
         }
+
+        if (!mb_check_encoding($raw, 'UTF-8')) {
+            // do not allow binary / non-UTF-8, JSON would fail
+            throw new ValidationException('PWD_UTF8', 'Invalid password');
+        }
+
         return $raw;
     }
 
