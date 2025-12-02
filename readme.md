@@ -14,7 +14,7 @@ The application is used only through an interactive console menu. All operations
 - File permission checks for vault and log files
 - Process lock to prevent running multiple instances
 - Fully interactive console UI (menu-based)
-- Optional Linux clipboard integration via `xclip` (passwords copied, never printed)
+- Linux clipboard integration via `xclip` (passwords copied, never printed)
 
 ## Requirements
 
